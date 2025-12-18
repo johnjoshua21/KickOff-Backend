@@ -380,7 +380,7 @@ public class TurfServiceImplementation implements TurfService {
         responseDTO.setTotalBookings(turf.getBookings() != null ? turf.getBookings().size() : 0);
         responseDTO.setTotalBlockedSlots(turf.getBlockedSlots() != null ? turf.getBlockedSlots().size() : 0);
 
-        // CORRECTED: Fetch images from database and add to response
+        // CORRECTED: Properly fetch and set images
         List<TurfImage> images = turfImageRepository.findByTurfId(turf.getId());
         if (images != null && !images.isEmpty()) {
             List<String> imageUrls = images.stream()
@@ -388,11 +388,14 @@ public class TurfServiceImplementation implements TurfService {
                     .collect(Collectors.toList());
             responseDTO.setImageUrls(imageUrls);
 
-            // Set primary image
+            // Set primary image - find the one marked as primary, or use first
             images.stream()
                     .filter(TurfImage::isPrimary)
                     .findFirst()
-                    .ifPresent(img -> responseDTO.setPrimaryImageUrl(img.getImageUrl()));
+                    .ifPresentOrElse(
+                            img -> responseDTO.setPrimaryImageUrl(img.getImageUrl()),
+                            () -> responseDTO.setPrimaryImageUrl(imageUrls.get(0))
+                    );
         }
 
         return responseDTO;

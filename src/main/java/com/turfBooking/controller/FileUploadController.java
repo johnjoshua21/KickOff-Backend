@@ -24,7 +24,7 @@ import java.util.Map;
 
 @RestController
 @RequestMapping("/api/files")
-@CrossOrigin(origins = "http://localhost:5173", allowCredentials = "true")
+@CrossOrigin(origins = "*", allowCredentials = "false")  // Changed for testing
 public class FileUploadController {
 
     @Autowired
@@ -37,7 +37,6 @@ public class FileUploadController {
     @PreAuthorize("hasRole('TURF_OWNER') or hasRole('ADMIN')")
     public ResponseEntity<?> uploadFile(@RequestParam("file") MultipartFile file) {
         try {
-            // ADDED: Log for debugging
             System.out.println("Received file: " + file.getOriginalFilename() + ", Size: " + file.getSize());
 
             String filename = fileStorageService.storeFile(file);
@@ -50,19 +49,17 @@ public class FileUploadController {
 
             return ResponseEntity.ok(response);
         } catch (Exception e) {
-            e.printStackTrace(); // ADDED: Print stack trace for debugging
+            e.printStackTrace();
             Map<String, String> error = new HashMap<>();
             error.put("error", "Failed to upload file: " + e.getMessage());
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(error);
         }
     }
 
-    // FIXED: Ensure this endpoint correctly handles the "files" parameter
     @PostMapping("/upload-multiple")
     @PreAuthorize("hasRole('TURF_OWNER') or hasRole('ADMIN')")
     public ResponseEntity<?> uploadMultipleFiles(@RequestParam("files") MultipartFile[] files) {
         try {
-            // ADDED: Log for debugging
             System.out.println("Received " + files.length + " files");
 
             List<Map<String, String>> uploadedFiles = new ArrayList<>();
@@ -85,51 +82,68 @@ public class FileUploadController {
 
             return ResponseEntity.ok(response);
         } catch (Exception e) {
-            e.printStackTrace(); // ADDED: Print stack trace for debugging
+            e.printStackTrace();
             Map<String, String> error = new HashMap<>();
             error.put("error", "Failed to upload files: " + e.getMessage());
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(error);
         }
     }
 
+    // CRITICAL FIX: This endpoint serves the actual image files
     @GetMapping("/{filename:.+}")
     public ResponseEntity<Resource> getFile(@PathVariable String filename) {
         try {
+            System.out.println("Attempting to serve file: " + filename);
+            System.out.println("Upload directory: " + uploadDir);
+
             Path filePath = Paths.get(uploadDir).resolve(filename).normalize();
+            System.out.println("Full file path: " + filePath.toAbsolutePath());
+
             Resource resource = new UrlResource(filePath.toUri());
 
-            if (resource.exists()) {
-                String contentType = "application/octet-stream";
-
-                // Try to determine file content type
-                try {
-                    contentType = Files.probeContentType(filePath);
-                    if (contentType == null) {
-                        // Default to image types
-                        if (filename.toLowerCase().endsWith(".jpg") || filename.toLowerCase().endsWith(".jpeg")) {
-                            contentType = "image/jpeg";
-                        } else if (filename.toLowerCase().endsWith(".png")) {
-                            contentType = "image/png";
-                        } else if (filename.toLowerCase().endsWith(".gif")) {
-                            contentType = "image/gif";
-                        } else if (filename.toLowerCase().endsWith(".webp")) {
-                            contentType = "image/webp";
-                        }
-                    }
-                } catch (IOException e) {
-                    contentType = "image/jpeg"; // Default fallback
-                }
-
-                return ResponseEntity.ok()
-                        .contentType(MediaType.parseMediaType(contentType))
-                        .header(HttpHeaders.CONTENT_DISPOSITION, "inline; filename=\"" + resource.getFilename() + "\"")
-                        .header(HttpHeaders.CACHE_CONTROL, "public, max-age=31536000")
-                        // CORS headers already handled by CorsConfig and @CrossOrigin
-                        .body(resource);
-            } else {
+            if (!resource.exists()) {
+                System.err.println("File not found: " + filePath.toAbsolutePath());
                 return ResponseEntity.notFound().build();
             }
+
+            if (!resource.isReadable()) {
+                System.err.println("File not readable: " + filePath.toAbsolutePath());
+                return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+            }
+
+            String contentType = "application/octet-stream";
+
+            // Try to determine file content type
+            try {
+                contentType = Files.probeContentType(filePath);
+                if (contentType == null) {
+                    // Default to image types based on extension
+                    String lowerFilename = filename.toLowerCase();
+                    if (lowerFilename.endsWith(".jpg") || lowerFilename.endsWith(".jpeg")) {
+                        contentType = "image/jpeg";
+                    } else if (lowerFilename.endsWith(".png")) {
+                        contentType = "image/png";
+                    } else if (lowerFilename.endsWith(".gif")) {
+                        contentType = "image/gif";
+                    } else if (lowerFilename.endsWith(".webp")) {
+                        contentType = "image/webp";
+                    }
+                }
+            } catch (IOException e) {
+                System.err.println("Could not determine content type: " + e.getMessage());
+                contentType = "image/jpeg"; // Default fallback
+            }
+
+            System.out.println("Serving file with content type: " + contentType);
+
+            return ResponseEntity.ok()
+                    .contentType(MediaType.parseMediaType(contentType))
+                    .header(HttpHeaders.CONTENT_DISPOSITION, "inline; filename=\"" + resource.getFilename() + "\"")
+                    .header(HttpHeaders.CACHE_CONTROL, "public, max-age=31536000")
+                    .header(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN, "*")
+                    .body(resource);
         } catch (Exception e) {
+            System.err.println("Error serving file: " + e.getMessage());
             e.printStackTrace();
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
         }
