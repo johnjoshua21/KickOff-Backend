@@ -34,3 +34,5 @@ build/
 
 # Runtime uploads (DO NOT COMMIT)
 uploads/
+
+../KickOff-UI/
